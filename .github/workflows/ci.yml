@@ -1,0 +1,207 @@
+name: CI
+
+# Déclenché à chaque push et pull request sur master
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Android + Desktop (JVM) : tournent sur Linux (rapide, peu de quota consommé).
+  # Comme toute la logique est dans commonMain, ce job couvre l'essentiel du code.
+  # ---------------------------------------------------------------------------
+  android-desktop:
+    name: Build & Test (Android + Desktop)
+    runs-on: ubuntu-latest
+
+    steps:
+      # Récupère le code du repo
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # JDK 21 / Corretto = même version + vendor que gradle/gradle-daemon-jvm.properties,
+      # pour que Gradle réutilise ce JDK au lieu d'en télécharger un.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 21
+
+      # Installe Gradle + active le cache (dépendances & build) entre les runs
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # local.properties est git-ignored : on le recrée à partir du secret GitHub.
+      # À configurer dans : Settings > Secrets and variables > Actions > New repository secret
+      #   Name = WEATHER_API_KEY
+      # (sdk.dir n'est pas nécessaire : le runner expose déjà ANDROID_SDK_ROOT)
+      - name: Create local.properties
+        run: echo "weather.api.key=${{ secrets.WEATHER_API_KEY }}" > local.properties
+
+      # Rend le wrapper exécutable (le bit +x peut être perdu sur un repo créé sous Windows)
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Tests partagés (logique JVM + host tests Android)
+      # --continue : exécute les deux tâches de test même si la première échoue,
+      # pour générer les rapports des deux.
+      - name: Run shared tests
+        run: ./gradlew --continue :shared:jvmTest :shared:testAndroidHostTest
+
+      # Sauvegarde les rapports HTML de test comme artefact téléchargeable.
+      # if: always() est INDISPENSABLE : sans lui, l'étape serait sautée quand
+      # les tests échouent (or c'est justement là qu'on veut le rapport).
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: shared/build/reports/tests/
+          if-no-files-found: ignore
+
+      # Build de l'APK debug Android
+      - name: Build Android debug APK
+        run: ./gradlew :androidApp:assembleDebug
+
+      # jpackage a besoin de fakeroot (+ binutils) pour fabriquer un .deb sous Linux
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y fakeroot binutils
+
+      # Build du paquet Desktop installable (.deb sous Linux, via jpackage)
+      - name: Build Desktop .deb
+        run: ./gradlew :desktopApp:packageDeb
+
+      # (Optionnel) Rend l'APK téléchargeable depuis la page du run dans l'onglet Actions
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: androidApp-debug
+          path: androidApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+
+      # Rend le paquet .deb Desktop téléchargeable.
+      # ATTENTION : le .deb est SPÉCIFIQUE à Linux (runtime Java embarqué).
+      # Pour un .msi Windows ou un .dmg Mac, il faudrait des jobs windows-latest / macos-latest.
+      - name: Upload Desktop .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktopApp-linux-deb
+          path: desktopApp/build/compose/binaries/main/deb/*.deb
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Desktop Windows : produit le .msi installable. Tourne sur un runner Windows
+  # (jpackage ne cross-compile pas). Job indépendant -> parallèle au job Linux.
+  # ---------------------------------------------------------------------------
+  desktop-windows:
+    name: Build Desktop (Windows .msi)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Shell PowerShell ici : on écrit local.properties en ASCII (éviter le BOM
+      # UTF-16 de PowerShell, que le chargeur de Properties Java ne lit pas bien).
+      - name: Create local.properties
+        shell: pwsh
+        run: Set-Content -Path local.properties -Value 'weather.api.key=${{ secrets.WEATHER_API_KEY }}' -Encoding ascii
+
+      # Pas de chmod sous Windows : le wrapper gradlew.bat gère l'exécution.
+      # packageMsi -> installeur Windows (jpackage s'appuie sur WiX, préinstallé sur le runner).
+      - name: Build Desktop .msi
+        run: ./gradlew :desktopApp:packageMsi
+
+      - name: Upload Desktop .msi (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktopApp-windows-msi
+          path: desktopApp/build/compose/binaries/main/msi/*.msi
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # iOS : nécessite OBLIGATOIREMENT un runner macOS (~10x plus coûteux en quota).
+  # ---------------------------------------------------------------------------
+  ios:
+    name: Build & Test (iOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Compose Multiplatform 1.11 référence des frameworks du SDK iOS récent
+      # (UIUtilities -> UIViewLayoutRegion). Le Xcode par défaut du runner
+      # peut être trop ancien et peut faire échouer le link Kotlin/Native. On sélectionne
+      # donc le Xcode le plus récent installé sur l'image macOS.
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Create local.properties
+        run: echo "weather.api.key=${{ secrets.WEATHER_API_KEY }}" > local.properties
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Build de l'app iOS pour le SIMULATEUR (aucune signature nécessaire).
+      # Placé AVANT les tests pour que l'app soit disponible en artefact
+      # même si un test échoue ensuite.
+      # -target (pas de scheme partagé commité dans le repo)
+      # Une vraie .ipa installable sur iPhone exige un compte Apple Developer
+      # (certificat + profil injectés en secrets)
+      - name: Build iOS app (simulator)
+        run: |
+          xcodebuild build \
+            -project iosApp/iosApp.xcodeproj \
+            -target iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            SYMROOT="$PWD/iosApp/build" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # ditto préserve permissions et liens symboliques du bundle .app,
+      # ce que le zip interne d'upload-artifact ne garantit pas.
+      - name: Zip iOS app
+        run: ditto -c -k --keepParent iosApp/build/Debug-iphonesimulator/WeatherApp.app WeatherApp-simulator.zip
+
+      # App lançable dans un simulateur iOS (Xcode) : la dézipper puis la glisser sur le simulateur
+      - name: Upload iOS app (simulator)
+        uses: actions/upload-artifact@v4
+        with:
+          name: iosApp-simulator
+          path: WeatherApp-simulator.zip
+          if-no-files-found: ignore
+
+      # Tests de la logique partagée compilée pour le simulateur iOS (arm64).
+      - name: Run iOS simulator tests
+        run: ./gradlew :shared:iosSimulatorArm64Test
+
+      # Rapport HTML des tests iOS (if: always() -> aussi en cas d'échec
+      - name: Upload iOS test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-ios
+          path: shared/build/reports/tests/
+          if-no-files-found: ignore
