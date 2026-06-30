@@ -2,6 +2,7 @@ package com.amonteiro.a06_ynov_kmp.data.remote
 
 import com.amonteiro.a06_ynov_kmp.BuildConfig
 import com.amonteiro.a06_ynov_kmp.di.initKoin
+import com.amonteiro.a06_ynov_kmp.domain.WeatherRepository
 import com.amonteiro.a06_ynov_kmp.domain.model.Weather
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -24,14 +25,14 @@ suspend fun main() {
 
 }
 
-class WeatherApiDataSource(val client : HttpClient) {
+class WeatherApiDataSource(val client : HttpClient) : WeatherRepository {
 
     companion object {
         private const val API_URL =
             "https://www.amonteiro.fr/api/weather?cityname="
     }
 
-    suspend fun loadWeathers(cityName: String): List<Weather> {
+    override suspend fun loadWeathers(cityName: String): List<Weather> {
         val response = client.get("https://api.openweathermap.org/data/2.5/find?q=$cityName&appid=${BuildConfig.WEATHER_API_KEY}&units=metric&lang=fr")
 
         if (!response.status.isSuccess()) {

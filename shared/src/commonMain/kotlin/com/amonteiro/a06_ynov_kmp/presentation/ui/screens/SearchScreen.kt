@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.amonteiro.a06_ynov_kmp.di.apiFakeModule
 import com.amonteiro.a06_ynov_kmp.di.apiModule
 import com.amonteiro.a06_ynov_kmp.di.viewModelModule
 import com.amonteiro.a06_ynov_kmp.domain.model.Weather
@@ -67,12 +68,12 @@ fun SearchScreenPreview() {
     //Il faut remplacer NomVotreAppliTheme par le thème de votre application
     //Utilisé par exemple dans MainActivity.kt sous setContent {...}
     KoinApplicationPreview(application = {
-        modules(viewModelModule, apiModule)
+        modules(viewModelModule, apiFakeModule)
     }) {
         AppTheme {
             Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                 val mainViewModel = koinViewModel<MainViewModel>()
-                mainViewModel.loadFakeData(true, "Un message d'erreur")
+                mainViewModel.loadWeathers("sdfghjk")
                 SearchScreen(modifier = Modifier.padding(innerPadding), mainViewModel = mainViewModel)
             }
         }

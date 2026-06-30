@@ -2,8 +2,8 @@ package com.amonteiro.a06_ynov_kmp.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.amonteiro.a06_ynov_kmp.data.remote.WeatherApiDataSource
 import com.amonteiro.a06_ynov_kmp.di.initKoin
+import com.amonteiro.a06_ynov_kmp.domain.WeatherRepository
 import com.amonteiro.a06_ynov_kmp.domain.model.Weather
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -32,7 +32,7 @@ suspend fun main() {
 
 }
 
-class MainViewModel(val weatherApiDataSource: WeatherApiDataSource ) : ViewModel() {
+class MainViewModel(val weatherApiDataSource: WeatherRepository ) : ViewModel() {
     //MutableStateFlow est une donnée observable
     val dataList = MutableStateFlow(emptyList<Weather>())
     val runInProgress = MutableStateFlow(false)

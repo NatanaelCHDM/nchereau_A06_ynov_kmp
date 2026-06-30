@@ -1,6 +1,8 @@
 package com.amonteiro.a06_ynov_kmp.di
 
+import com.amonteiro.a06_ynov_kmp.data.fake.WeatherApiFakeDataSource
 import com.amonteiro.a06_ynov_kmp.data.remote.WeatherApiDataSource
+import com.amonteiro.a06_ynov_kmp.domain.WeatherRepository
 import com.amonteiro.a06_ynov_kmp.presentation.viewmodel.MainViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
@@ -15,6 +17,7 @@ import org.koin.core.context.startKoin
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.KoinAppDeclaration
+import org.koin.dsl.bind
 import org.koin.dsl.module
 
 
@@ -51,7 +54,12 @@ val apiModule = module {
         }
     }
 
-    singleOf(::WeatherApiDataSource)
+   // single<WeatherRepository> { WeatherApiDataSource(get()) }
+    singleOf(::WeatherApiDataSource) bind WeatherRepository::class
+}
+
+val apiFakeModule = module {
+    singleOf(::WeatherApiFakeDataSource) bind WeatherRepository::class
 }
 
 val viewModelModule = module {
